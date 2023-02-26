@@ -17,7 +17,7 @@ function setDefaultContext(cb: fn,  args: (string | number)[]) {
      catch (error) {
       console.log(error);
    
-      process.exit(1);
+      process.exitCode = 1;
      }
   }
 }
@@ -27,9 +27,13 @@ interface IRunCliCommand {
   customContext?: typeof setDefaultContext;
 }
 
-export async function runCliCommand(cb: fn<void>, options: IRunCliCommand) {
-  const { args } = options;
-
-  const msgEventAction = options.customContext ?? setDefaultContext
-  process.once("message", msgEventAction(cb, args));
+export async function runCliCommand(cmdToTest: fn<void>, args: (string | number)[] = [], eventAction: typeof setDefaultContext = setDefaultContext) {
+  process.once("message", eventAction(cmdToTest, args));
 }
+
+// export async function runCliCommand(cmdToTest: fn<void>, options: IRunCliCommand) {
+//   const { args } = options;
+
+//   const msgEventAction = options.customContext ?? setDefaultContext
+//   process.once("message", msgEventAction(cmdToTest, args));
+// }

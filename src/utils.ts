@@ -1,4 +1,4 @@
-export type FilePath = `${string}.js`;
+export type PathOfJsFile = `${string}.js`;
 
 export function taggedString(chaines: TemplateStringsArray, ...cles: (string|number)[]) {
   return function cur(...valeurs: (string|number)[]) {

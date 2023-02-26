@@ -6,14 +6,14 @@ import { Readable } from "node:stream";
 // Import Internal Dependencies
 import { createFileToTest, removeFile } from "./mockFileToFork.js";
 import { CliError } from "./cliErrors.js";
-import { FilePath } from "./utils.js";
+import { PathOfJsFile } from "./utils.js";
 
 export { runCliCommand } from "./runCliCommand.js"
 
 // CONSTANTS
-const kPathToGeneratedFile = "./oui.js";
+const kPathOfMockFile = "./oui.js";
 
-function initChildProcess(options: { filePath: FilePath, args: any[], dataToSend: any }) {
+function initChildProcess(options: { filePath: PathOfJsFile, args: any[], dataToSend: any }) {
   const { filePath, args, dataToSend = null } = options;
 
   const childProcess = fork(filePath, args, {
@@ -25,9 +25,9 @@ function initChildProcess(options: { filePath: FilePath, args: any[], dataToSend
 }
 
 interface IMockCliOptions {
-  methodPath: FilePath;
+  methodPath: PathOfJsFile;
   methodName?: string;
-  filePath?: FilePath;
+  filePath?: PathOfJsFile;
   isDefaultMethod?: boolean;
   args?: any[];
   dataToSend?: any;
@@ -35,33 +35,28 @@ interface IMockCliOptions {
 }
 
 export async function mockCli(options: IMockCliOptions) {
-  const genereateMockFile = !options.filePath;
-  const filePath = genereateMockFile ? kPathToGeneratedFile : options.filePath;
+  const useMockFile = !options.filePath;
+  const filePath = useMockFile ? kPathOfMockFile : options.filePath;
 
   if (typeof filePath !== "string") {
-    throw new CliError("CLI_ERR_MISS_VALUE", "options.filePath", options.filePath);
+    throw new CliError("CLI_ERR_TYPE_VALUE", "options.filePath", options.filePath);
   }
 
-  if (genereateMockFile) {
+  if (useMockFile) {
     if (typeof options.methodPath !== "string") {
       throw new CliError("CLI_ERR_TYPE_VALUE", "options.methodPath", options.methodPath);
     }
 
-    createFileToTest({
-      pathMethod: options.methodPath,
-      isDefaultMethod: Boolean(options.isDefaultMethod),
-      filePath
-    });
+    createFileToTest(options.methodPath, filePath);
   }
 
-  const childProcess = initChildProcess({
-    filePath,
-    args: options.args ?? [],
-    dataToSend: options
+  const childProcess = fork(filePath, options.args, {
+    stdio: ["ignore", "pipe", "pipe", "ipc"]
   });
+  childProcess.send(options.dataToSend);
 
-  if (genereateMockFile) {
-    childProcess.once("close", removeFile.bind(null, filePath));
+  if (useMockFile) {
+    childProcess.once("close", removeFile.bind(null, kPathOfMockFile));
   }
 
   const rStream = createInterface(childProcess.stdout as Readable);

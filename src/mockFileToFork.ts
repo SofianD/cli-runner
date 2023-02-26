@@ -1,7 +1,10 @@
 // Import Node.js Dependencies
 import { writeFileSync, unlinkSync } from "node:fs";
 
-export function createFileToTest({ pathMethod, isDefaultMethod, filePath }) {
+// Import Internal Deps
+import { PathOfJsFile } from "utils";
+
+export function createFileToTest(pathMethod: string, filePath: PathOfJsFile, methodName?: string) {
 const templateJS =
 `const f = require("${pathMethod}");
 const { runCliCommand } = require("./dist/index.js");
@@ -12,7 +15,8 @@ const options = {
   args
 };
 
-runCliCommand(f, options);` ;
+runCliCommand(${methodName ? `f["${methodName}"]` : "f"}, options);
+` ;
 
   writeFileSync(filePath, templateJS);
 

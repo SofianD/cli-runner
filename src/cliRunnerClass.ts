@@ -10,6 +10,20 @@ import { PathOfJsFile } from "./utils.js";
 
 const kPathOfMockFile = "./mockFileToRunProcess.js";
 
+const MON_ADDON = {
+  send: (cmd: string) => ":)"
+};
+
+interface IPromptListEntity {
+  question: string;
+  // ou bien
+  index: number;
+
+  response?: string;
+  pressKey?: string;
+  done?: boolean;
+}
+
 interface ICliRunnerOptions {
   methodName?: string;
   filePath?: PathOfJsFile;
@@ -26,6 +40,7 @@ export class CliRunner {
   private filePath: PathOfJsFile;
   private args: string[];
   private interfaceAsReadable: Interface;
+  private prompts: IPromptListEntity[] = [];
 
   constructor(options: ICliRunnerOptions = {}) {
     this.useMockFile = !options.filePath;
@@ -74,8 +89,24 @@ export class CliRunner {
     }
 
     const lines: string[] = [];
+    const index = 0;
+
     for await (const line of this.interfaceAsReadable) {
       lines.push(line);
+
+      const prompt = this.prompts[0];
+      if (prompt) {
+        if (prompt.question === line) {
+          MON_ADDON.send(prompt.response ?? prompt.pressKey);
+          this.prompts.shift();
+        }
+
+        // ou bien avec l'index mais pas fan mais bcp plus précis mais bcp moins pratique mais pas d'erreur dû au ctx
+        if (prompt.index === index) {
+          MON_ADDON.send(prompt.response ?? prompt.pressKey);
+          this.prompts.shift();
+        }
+      }
     }
 
     this.result = lines;
@@ -118,6 +149,12 @@ export class CliRunner {
 
   forceToCloseCli() {
     this.childProcess.kill();
+  }
+
+  reply(data: IPromptListEntity) {
+    this.prompts.push(data);
+
+    return this;
   }
 
   write(cmd: string) {

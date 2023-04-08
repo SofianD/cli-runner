@@ -16,7 +16,7 @@ const options = {
 };
 
 runCliCommand(${methodName ? `f["${methodName}"]` : "f"}, options);
-` ;
+`;
 
   writeFileSync(filePath, templateJS);
 

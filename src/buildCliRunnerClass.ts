@@ -21,7 +21,7 @@ interface RunnerOptions {
   /**
    * Default: `true`
    */
-  isModule?: boolean;
+  module?: boolean;
     /**
    * Default: `false`
    */
@@ -55,15 +55,15 @@ export class MockCliBuilder {
       throw new Error("Typescript is not yet supported.");
     }
 
-    const parse = options.isModule ? parseModule : parseScript;
+    const parse = options.module ? parseModule : parseScript;
     const currentFile = readFileSync(currentFileName, {
       encoding: "utf-8",
       flag: "r"
     });
   
-    this.ast = parse(currentFile, { module: options.isModule }) as ESTree.Program & { body?: ESTree.VariableDeclaration[] };
+    this.ast = parse(currentFile, { module: options.module }) as ESTree.Program & { body?: ESTree.VariableDeclaration[] };
     // writeFileSync(join(dirname(currentFileName), "ahouioui.json"), JSON.stringify(this.ast, null, "\t"));
-    this.getModules = options.isModule ? scanImportAST : scanRequireAST;
+    this.getModules = options.module ? scanImportAST : scanRequireAST;
     this.currentFileName = currentFileName;
   }
 

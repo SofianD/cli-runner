@@ -43,7 +43,7 @@ export class MockCliBuilder {
   builtFileName: string;
   currentFileName: string;
   ast: ESTree.Program & { body?: ESTree.VariableDeclaration[] };
-  getModules: typeof scanImportAST | typeof scanRequireAST;
+  scanStatement: typeof scanImportAST | typeof scanRequireAST;
 
   constructor(currentFileName: string, customOptions: RunnerOptions = {}) {
     const options = {
@@ -63,7 +63,7 @@ export class MockCliBuilder {
   
     this.ast = parse(currentFile, { module: options.module }) as ESTree.Program & { body?: ESTree.VariableDeclaration[] };
     // writeFileSync(join(dirname(currentFileName), "ahouioui.json"), JSON.stringify(this.ast, null, "\t"));
-    this.getModules = options.module ? scanImportAST : scanRequireAST;
+    this.scanStatement = options.module ? scanImportAST : scanRequireAST;
     this.currentFileName = currentFileName;
   }
 
@@ -91,7 +91,7 @@ ${fn ? `${fn.toString()}\n${fn.name}();` : ""}
 
     const rStream = createInterface(cp.stdout as Readable);
 
-    cp.on("exit", () => {
+    cp.once("exit", () => {
       unlink(this.builtFileName, (error) => {
         if (error) {
           throw error;
@@ -107,28 +107,16 @@ ${fn ? `${fn.toString()}\n${fn.name}();` : ""}
     return lines;
   }
 
-  getLines() {
-    
-  }
-
   private *getImportedModules(pkgList: string[]) {
-    let i = 0;
     for (const statement of this.ast.body) {
       let result;
       try {
-        result = this.getModules((statement as any), pkgList);
+        result = this.scanStatement((statement as any), pkgList);
       }
       catch (error) {
-        console.log(`[getImportedModules ERROR] index: ${i}`);
-        console.log(statement);
-        console.log("id", statement.declarations[0].id );
-        console.log("init", statement.declarations[0].init);
         console.log(error);
 
         continue;
-      }
-      finally {
-        i++;
       }
 
       if (!result) {
@@ -172,25 +160,19 @@ export function scanRequireAST(statement: ESTree.VariableDeclaration, pkgList: s
 
   const declaration = statement.declarations[0];
 
-  if (kRequireDeclarationType !== declaration.type) {
+  if (kRequireDeclarationType !== declaration.type || declaration.init.type !== "CallExpression") {
     return null;
   }
 
-  if (declaration.init.type !== "CallExpression") {
-    return null;
-  }
-
-  if ((declaration.init as any).callee.name !== "require") {
+  if (declaration.init.callee.name !== "require") {
     return null;
   }
   
   const names: string[]= [];
-  const path = (declaration.init as any).arguments[0].value as string;
-  let type = "VarDeclaration";
+  const path = (declaration.init.arguments[0] as any).value as string;
 
   if (declaration.id.type === "ObjectPattern") {
     names.push(...declaration.id.properties.map((prop: any) => prop.value.name));
-    type = "ObjectPattern";
   }
   else {
     names.push((declaration.id as any).name);
@@ -200,5 +182,5 @@ export function scanRequireAST(statement: ESTree.VariableDeclaration, pkgList: s
     return null;
   } 
 
-  return { names, path, statement, type };
+  return { names, path, statement };
 }

@@ -12,6 +12,8 @@ import { Readable } from "stream";
 // CONST is module
 const kImportStatementsType = "ImportDeclaration";
 const kSpecifiersType = ["ImportSpecifier", "ImportDefaultSpecifier"];
+const kVarStatementType = "ExpressionStatement";
+const kVarType = ["CallExpression"];
 
 // CONST is not module
 const kRequireStatementsType = "VariableDeclaration";
@@ -32,7 +34,8 @@ interface RunnerOptions {
 interface RunOptions {
   pkgList: string[];
   fn: (...args: any) => any;
-  args: string[]
+  args: string[];
+  constants: string[];
 }
 
 const defaultBuilderOptions: RunnerOptions = {
@@ -44,9 +47,11 @@ const defaultBuilderOptions: RunnerOptions = {
 export class MockCliBuilder {
   builtFileName: string;
   currentFileName: string;
-  ast: ESTree.Program & { body?: ESTree.VariableDeclaration[] };
-  scanStatement: typeof scanImportAST | typeof scanRequireAST;
   deleteMockFile: boolean;
+  markToFetchConstants: string
+  ast: ESTree.Program & { body?: ESTree.VariableDeclaration[] };
+  getImportStatement: typeof scanImportAST | typeof scanRequireAST;
+  getVarDeclarationStatement: typeof scanVarDeclarationInContextAST;
 
   constructor(currentFileName: string, customOptions: RunnerOptions = {}) {
     const options = {
@@ -66,13 +71,14 @@ export class MockCliBuilder {
   
     this.ast = parse(currentFile, { module: options.module }) as ESTree.Program & { body?: ESTree.VariableDeclaration[] };
     // writeFileSync(join(dirname(currentFileName), "ahouioui.json"), JSON.stringify(this.ast, null, "\t"));
-    this.scanStatement = options.module ? scanImportAST : scanRequireAST;
+    this.getImportStatement = options.module ? scanImportAST : scanRequireAST;
+    this.getVarDeclarationStatement = scanVarDeclarationInContextAST;
     this.currentFileName = currentFileName;
     this.deleteMockFile = options.deleteMockFile;
   }
 
   async run(options: RunOptions) {
-    const { pkgList = [] , fn, args = [] } = options;
+    const { pkgList = [] , fn, args = [], constants: constantsToImport = [] } = options;
 
     if (!fn) {
       throw new Error("Missing 'fn' argument.")
@@ -91,8 +97,33 @@ export class MockCliBuilder {
 
     this.builtFileName = join(dirname(this.currentFileName), "kekwait.js");
     const builtImport = generate(prog);
+
+    const [ContextStatement] = [...this.getContextBasedOnTheMark()];
+    const body = ContextStatement.expression.arguments[1].body.body;
+  
+    const matchedConstants = [];
+    for (const statement of body) {
+      if (statement.type === "VariableDeclaration") {
+        const declaration = statement.declarations[0];
+        if (declaration.type === "VariableDeclarator") {
+          if (constantsToImport.includes(declaration.id.name)) {
+            matchedConstants.push(statement);
+          }
+        }
+      }
+    }
+
+    const prog2 = {
+      type: "Program",
+      sourceType: "module",
+      body: matchedConstants
+    }
+
+    const builtConstants = generate(prog2);
+
     const builtFile = 
 `${builtImport}
+${builtConstants}
 ${fn.toString()}
 
 try {\n\t${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exit(1);\n}
@@ -128,7 +159,7 @@ try {\n\t${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exi
     for (const statement of this.ast.body) {
       let result;
       try {
-        result = this.scanStatement((statement as any), pkgList);
+        result = this.getImportStatement((statement as any), pkgList);
       }
       catch (error) {
         console.log(error);
@@ -142,6 +173,49 @@ try {\n\t${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exi
 
       yield result;
     }
+  }
+
+  *getContextBasedOnTheMark(ast = this.ast) {
+    // console.log("ast", ast);
+    let i = 0;
+    if (this.markToFetchConstants) {
+      for (const statement of ast.body) {
+        let result;
+        try {
+          result = this.getVarDeclarationStatement((statement as any), this.markToFetchConstants);
+        }
+        catch (error) {
+          console.log(error);
+
+          continue;
+        }
+  
+        if (result?.body) {
+          ([result] = [...this.getContextBasedOnTheMark(result.body)]);
+          
+          if (result) {
+            yield statement;
+          }
+
+          continue;
+        }
+
+
+        if (!result?.statement) {
+          continue;
+        }
+        
+        yield result.statement;
+      }
+    }
+  }
+
+  mark(mark: string) {
+    this.markToFetchConstants = mark;
+  }
+
+  removeMark() {
+    this.markToFetchConstants = undefined;
   }
 }
 
@@ -200,4 +274,39 @@ export function scanRequireAST(statement: ESTree.VariableDeclaration, pkgList: s
   } 
 
   return { names, path, statement };
+}
+
+export function scanVarDeclarationInContextAST(statement: ESTree.ExpressionStatement, mark: string) {  
+  if (statement.type !== kVarStatementType) {
+    return null;
+  }
+
+  if (!kVarType.includes(statement.expression.type)) {
+    return null;
+  }
+
+  if ((statement.expression as any).arguments[1]) {
+    const arg = (statement.expression as any).arguments[1];
+    if (["ArrowFunctionExpression", "FunctionExpression"].includes(arg.type)) {
+      if (arg.body) {
+        return { body: arg.body };
+      }
+    }
+  }
+
+  if ((statement.expression as ESTree.CallExpression).callee.type !== "MemberExpression") {
+    return null;
+  }
+
+  // TODO: récupérer le nom de la constante qui save le MockCli pour s'assurer de récupérer la bonne méthode mais là: flemme.
+
+  if ((statement.expression as ESTree.CallExpression).callee.property.name !== "mark") {
+    return null;
+  }
+
+  if ((statement.expression as any).arguments[0].value !== mark) {
+    return null;
+  }
+
+  return { statement };
 }

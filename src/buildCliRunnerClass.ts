@@ -26,6 +26,7 @@ interface RunnerOptions {
    * Default: `false`
    */
   isTypescript?: boolean;
+  deleteMockFile?: boolean;
 }
 
 interface RunOptions {
@@ -34,9 +35,10 @@ interface RunOptions {
   args: string[]
 }
 
-const defaultBuilderOptions = {
+const defaultBuilderOptions: RunnerOptions = {
   module: true,
-  isTypescript: false
+  isTypescript: false,
+  deleteMockFile: true
 };
 
 export class MockCliBuilder {
@@ -44,6 +46,7 @@ export class MockCliBuilder {
   currentFileName: string;
   ast: ESTree.Program & { body?: ESTree.VariableDeclaration[] };
   scanStatement: typeof scanImportAST | typeof scanRequireAST;
+  deleteMockFile: boolean;
 
   constructor(currentFileName: string, customOptions: RunnerOptions = {}) {
     const options = {
@@ -65,10 +68,20 @@ export class MockCliBuilder {
     // writeFileSync(join(dirname(currentFileName), "ahouioui.json"), JSON.stringify(this.ast, null, "\t"));
     this.scanStatement = options.module ? scanImportAST : scanRequireAST;
     this.currentFileName = currentFileName;
+    this.deleteMockFile = options.deleteMockFile;
   }
 
   async run(options: RunOptions) {
     const { pkgList = [] , fn, args = [] } = options;
+
+    if (!fn) {
+      throw new Error("Missing 'fn' argument.")
+    }
+
+    // const oui = parseScript(fn.toString(), { module: false });
+    // writeFileSync("oui.js", JSON.stringify(oui, null, "\t"));
+    // console.log(generate(oui))
+
     const result = [...this.getImportedModules(pkgList)];
     const prog = {
       type: "Program",
@@ -78,9 +91,11 @@ export class MockCliBuilder {
 
     this.builtFileName = join(dirname(this.currentFileName), "kekwait.js");
     const builtImport = generate(prog);
-    const builtFile = `${builtImport}
+    const builtFile = 
+`${builtImport}
+${fn.toString()}
 
-${fn ? `${fn.toString()}\n${fn.name}();` : ""}
+try {\n\t${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exit(1);\n}
 `;
 
     writeFileSync(this.builtFileName, builtFile);
@@ -91,13 +106,15 @@ ${fn ? `${fn.toString()}\n${fn.name}();` : ""}
 
     const rStream = createInterface(cp.stdout as Readable);
 
-    cp.once("exit", () => {
-      unlink(this.builtFileName, (error) => {
-        if (error) {
-          throw error;
-        }
+    if (this.deleteMockFile) {
+      cp.once("exit", () => {
+        unlink(this.builtFileName, (error) => {
+          if (error) {
+            throw error;
+          }
+        });
       });
-    });
+    }
 
     const lines: string[] = [];
     for await (const line of rStream) {

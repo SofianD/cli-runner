@@ -11,9 +11,11 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^16.18.11"
+    "@types/estree": "^1.0.1",
+    "@types/node": "^16.18.24"
   },
   "dependencies": {
+    "astring": "^1.8.4",
     "meriyah": "^4.3.5"
   }
 }

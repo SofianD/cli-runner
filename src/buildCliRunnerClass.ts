@@ -84,10 +84,6 @@ export class MockCliBuilder {
       throw new Error("Missing 'fn' argument.")
     }
 
-    // const oui = parseScript(fn.toString(), { module: false });
-    // writeFileSync("oui.js", JSON.stringify(oui, null, "\t"));
-    // console.log(generate(oui))
-
     const result = [...this.getImportedModules(pkgList)];
     const prog = {
       type: "Program",
@@ -126,7 +122,11 @@ export class MockCliBuilder {
 ${builtConstants}
 ${fn.toString()}
 
-try {\n\t${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exit(1);\n}
+function main() {
+  try {\n\t await ${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exit(1);\n}
+}
+
+main();
 `;
 
     writeFileSync(this.builtFileName, builtFile);
@@ -217,6 +217,42 @@ try {\n\t${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exi
   removeMark() {
     this.markToFetchConstants = undefined;
   }
+
+  *getContextBasedOnTheMarkV2(ast = this.ast, parent: { parent: any, ctx: any } = null) {
+    // console.log("ast", ast);
+    let i = 0;
+    if (this.markToFetchConstants) {
+      for (const statement of ast.body) {
+        let result;
+        try {
+          result = this.getVarDeclarationStatement((statement as any), this.markToFetchConstants);
+        }
+        catch (error) {
+          console.log(error);
+
+          continue;
+        }
+  
+        if (result?.body) {
+          ([result] = [...this.getContextBasedOnTheMarkV2(result.body, { ctx: ast.body, parent: parent ? parent : { ctx: ast.body } })]);
+
+          if (result) {
+            yield result;
+          }
+
+          continue;
+        }
+
+
+        if (!result?.statement) {
+          continue;
+        }
+        
+        // yield { global: this.ast.body, ...parent };
+        yield { ctx: ast.body, parent };
+      }
+    }
+  }
 }
 
 export function scanImportAST(statement: ESTree.ImportDeclaration, pkgList: string[]) {  
@@ -286,7 +322,8 @@ export function scanVarDeclarationInContextAST(statement: ESTree.ExpressionState
   }
 
   if ((statement.expression as any).arguments[1]) {
-    const arg = (statement.expression as any).arguments[1];
+    const args = (statement.expression as any).arguments;
+    const arg = args[args.length - 1];
     if (["ArrowFunctionExpression", "FunctionExpression"].includes(arg.type)) {
       if (arg.body) {
         return { body: arg.body };

@@ -253,6 +253,15 @@ main();
       }
     }
   }
+
+  checkFnAst(fn: (...args: any[]) => any, writeFile = false) {
+    const fnAst = parseScript(fn.toString(), { module: false });
+    if (writeFile) {
+      writeFileSync(join(dirname(this.currentFileName), "checkFnAst.json"), JSON.stringify(fnAst, null, "\t"));
+    }
+
+    return fnAst;
+  }
 }
 
 export function scanImportAST(statement: ESTree.ImportDeclaration, pkgList: string[]) {  

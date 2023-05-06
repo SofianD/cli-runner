@@ -1,9 +1,12 @@
 function checkVariableDeclaratorInit(declaration, forbiddenKeyWordInThisFunction, pushIdentifier) {
-  if (declaration.init.type === "Identifier") {
-    pushIdentifier(declaration.init.name, forbiddenKeyWordInThisFunction);
+  const d = declaration.init ?? declaration;
+  
+  if (d.type === "Identifier") {
+    pushIdentifier(d.name, forbiddenKeyWordInThisFunction);
   }
-  else if (declaration.init.type === "ArrayExpression") {
-    for(const element of declaration.init.elements) {
+
+  else if (d.type === "ArrayExpression") {
+    for(const element of d.elements) {
       if (element.type === "Identifier") {
         pushIdentifier(element.name, forbiddenKeyWordInThisFunction);
       }
@@ -16,12 +19,13 @@ function checkVariableDeclaratorInit(declaration, forbiddenKeyWordInThisFunction
       }
     }
   }
-  else if (declaration.init.type === "CallExpression") {
-    if (declaration.init.callee.type === "Identifier") {
+
+  else if (d.type === "CallExpression") {
+    if (d.callee.type === "Identifier") {
       // pushIdentifier(declaration.init.callee.name, forbiddenKeyWordInThisFunction);
       // console.log("declaration", declaration);
 
-      [...checkCallExpressionStatement(declaration.init, forbiddenKeyWordInThisFunction, pushIdentifier)];
+      [...checkCallExpressionStatement(d, forbiddenKeyWordInThisFunction, pushIdentifier)];
     }
   }
 }
@@ -31,25 +35,6 @@ function getConstantsName(statement, forbiddenKeyWordInThisFunction, pushIdentif
     if (declaration.type === "VariableDeclarator") {
       if (declaration.id.type === "Identifier") {
         forbiddenKeyWordInThisFunction.push(declaration.id.name);
-
-
-        // if (declaration.init.type === "Identifier") {
-        //   pushIdentifier(declaration.init.name, forbiddenKeyWordInThisFunction);
-        // }
-        // else if (declaration.init.type === "ArrayExpression") {
-        //   for(const element of declaration.init.elements) {
-        //     if (element.type === "Identifier") {
-        //       pushIdentifier(element.name, forbiddenKeyWordInThisFunction);
-        //     }
-        //   }
-        // }
-        // else if (declaration.init.type === "CallExpression") {
-        //   if (declaration.init.callee.type === "Identifier") {
-        //     pushIdentifier(declaration.init.callee.name, forbiddenKeyWordInThisFunction);
-
-        //     // checkCallExpression(declaration);
-        //   }
-        // }
       }
 
       else if (declaration.id.type === "ObjectPattern") {
@@ -69,17 +54,6 @@ function getConstantsName(statement, forbiddenKeyWordInThisFunction, pushIdentif
               }
             }
           }
-        
-          // if (declaration.init.type === "Identifier") {
-          //   pushIdentifier(declaration.init.name, forbiddenKeyWordInThisFunction);
-          // }
-          // else if (declaration.init.type === "ArrayExpression") {
-          //   for(const element of declaration.init.elements) {
-          //     if (element.type === "Identifier") {
-          //       pushIdentifier(element.name, forbiddenKeyWordInThisFunction);
-          //     }
-          //   }
-          // }
         }
       }
 
@@ -97,17 +71,6 @@ function getConstantsName(statement, forbiddenKeyWordInThisFunction, pushIdentif
             }
           }
         }
-
-        // if (declaration.init.type === "Identifier") {
-        //   pushIdentifier(declaration.init.name, forbiddenKeyWordInThisFunction);
-        // }
-        // else if (declaration.init.type === "ArrayExpression") {
-        //   for(const element of declaration.init.elements) {
-        //     if (element.type === "Identifier") {
-        //       pushIdentifier(element.name, forbiddenKeyWordInThisFunction);
-        //     }
-        //   }
-        // }
       }
 
       checkVariableDeclaratorInit(declaration, forbiddenKeyWordInThisFunction, pushIdentifier);
@@ -144,16 +107,16 @@ function* checkCallExpressionStatement(obj, forbiddenKeyWordInThisFunction, push
     pushIdentifier(obj.callee.name, forbiddenKeyWordInThisFunction);
 
     for (const arg of obj.arguments) {
-      // [...checkCallExpressionStatement(arg, forbiddenKeyWordInThisFunction, pushIdentifier)];
-      console.log("arg", arg);
-      checkVariableDeclaratorInit(obj, forbiddenKeyWordInThisFunction, pushIdentifier);
+      checkVariableDeclaratorInit(arg, forbiddenKeyWordInThisFunction, pushIdentifier);
     }
   }
+
   else if (obj.callee.type === "MemberExpression" && obj.callee.object.type === "CallExpression") {
     [...checkCallExpressionStatement(obj.callee.object, forbiddenKeyWordInThisFunction, pushIdentifier)];
   }
+
+  // pas sur qu'il soit utile ce batard de 'else'.
   else {
-    console.log("obj", obj)
     pushIdentifier(obj.callee.object.name, forbiddenKeyWordInThisFunction);
   }
 }

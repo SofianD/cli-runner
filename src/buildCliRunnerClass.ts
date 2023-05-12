@@ -9,6 +9,11 @@ import { generate } from "astring";
 import { createInterface } from "readline";
 import { Readable } from "stream";
 
+// Import Internal Dependencies
+import { getConstantsFromFunctionV2 } from "./feature/getIdentifierFromFunction/index";
+
+  // TODO: récupérer le nom de la constante qui save le MockCli pour s'assurer de récupérer la bonne méthode mais là: flemme.
+
 // CONST is module
 const kImportStatementsType = "ImportDeclaration";
 const kSpecifiersType = ["ImportSpecifier", "ImportDefaultSpecifier"];
@@ -18,6 +23,8 @@ const kVarType = ["CallExpression"];
 // CONST is not module
 const kRequireStatementsType = "VariableDeclaration";
 const kRequireDeclarationType = "VariableDeclarator";
+
+const kForbiddenKeyword = ["console", "process", "Array","Date","Math","NaN","Number","Object","String","arguments","clearInterval","clearTimeout"];
 
 interface RunnerOptions {
   /**
@@ -33,7 +40,6 @@ interface RunnerOptions {
 
 interface RunOptions {
   pkgList: string[];
-  fn: (...args: any) => any;
   args: string[];
   constants: string[];
 }
@@ -77,58 +83,67 @@ export class MockCliBuilder {
     this.deleteMockFile = options.deleteMockFile;
   }
 
-  async run(options: RunOptions) {
-    const { pkgList = [] , fn, args = [], constants: constantsToImport = [] } = options;
+  async run(fn: (...args: any) => any, options: RunOptions = {
+    pkgList: [],
+    args: [],
+    constants: []
+  }) {
+    const { pkgList = [] , args = [], constants = [] } = options;
 
     if (!fn) {
-      throw new Error("Missing 'fn' argument.")
+      throw new Error("Missing 'fn' argument.");
     }
 
     const result = [...this.getImportedModules(pkgList)];
+    // console.log("🚀 ~ file: buildCliRunnerClass.ts:95 ~ MockCliBuilder ~ run ~ result:", result);
+    
+    const constantsToIgnore = [
+      ...result.flatMap((data) => data.names),
+      ...kForbiddenKeyword
+    ];
+    // console.log("🚀 ~ file: buildCliRunnerClass.ts:101 ~ MockCliBuilder ~ run ~ constantsToIgnore:", constantsToIgnore);
+    const fnProgram = parseScript(fn.toString());
+    // console.log("🚀 ~ file: buildCliRunnerClass.ts:106 ~ MockCliBuilder ~ run ~ fnProgram:", fnProgram)
+    const fnAst = fnProgram.body[0];
+    // console.log("🚀 ~ file: buildCliRunnerClass.ts:108 ~ MockCliBuilder ~ run ~ fnAst:", fnAst)
+    const constantsToImport = Array
+      .from(new Set([
+        ...constants,
+        ...[...getConstantsFromFunctionV2(fnAst, constantsToIgnore, false)].flat()
+      ]))
+      .filter((c) => c ? !constantsToIgnore.includes(c) : false);
+    // console.log("🚀 ~ file: buildCliRunnerClass.ts:114 ~ MockCliBuilder ~ run ~ constantsToImport:", constantsToImport)
+    const [kekw] = [...this.getContextBasedOnTheMarkV2()];
+    const builtConstants = magic(kekw, constantsToImport);
+
     const prog = {
       type: "Program",
       sourceType: "module",
       body: result.map((data) => data.statement)
-    }
-
-    this.builtFileName = join(dirname(this.currentFileName), "kekwait.js");
+    };
     const builtImport = generate(prog);
 
-    const [ContextStatement] = [...this.getContextBasedOnTheMark()];
-    const body = ContextStatement.expression.arguments[1].body.body;
+    (fnProgram.body[0] as any).params = [];
+    const builtFn = generate(fnProgram);
   
-    const matchedConstants = [];
-    for (const statement of body) {
-      if (statement.type === "VariableDeclaration") {
-        const declaration = statement.declarations[0];
-        if (declaration.type === "VariableDeclarator") {
-          if (constantsToImport.includes(declaration.id.name)) {
-            matchedConstants.push(statement);
-          }
-        }
-      }
-    }
-
-    const prog2 = {
-      type: "Program",
-      sourceType: "module",
-      body: matchedConstants
-    }
-
-    const builtConstants = generate(prog2);
-
     const builtFile = 
 `${builtImport}
 ${builtConstants}
-${fn.toString()}
+${builtFn}
 
-function main() {
-  try {\n\t await ${fn.name}();\n}\ncatch (error) {\n\tconsole.log(error);\n\tprocess.exit(1);\n}
-}
+(async function() {
+  try {
+    await ${fn.name}();
+  }
+  catch (error) {
+    console.log(error);
 
-main();
+    process.exit(1);
+  }
+})();
 `;
 
+    this.builtFileName = join(dirname(this.currentFileName), "kekwait.js");
     writeFileSync(this.builtFileName, builtFile);
 
     const cp = fork(this.builtFileName, options.args, {
@@ -289,7 +304,7 @@ export function scanImportAST(statement: ESTree.ImportDeclaration, pkgList: stri
   return { names, path, statement };
 }
 
-export function scanRequireAST(statement: ESTree.VariableDeclaration, pkgList: string[]) {  
+export function scanRequireAST(statement: ESTree.VariableDeclaration, pkgList: string[], onlyImport = true) {  
   if (statement.type !== kRequireStatementsType) {
     return null;
   }
@@ -300,7 +315,7 @@ export function scanRequireAST(statement: ESTree.VariableDeclaration, pkgList: s
     return null;
   }
 
-  if (declaration.init.callee.name !== "require") {
+  if (declaration.init.callee.name !== "require" && onlyImport) {
     return null;
   }
   
@@ -355,4 +370,225 @@ export function scanVarDeclarationInContextAST(statement: ESTree.ExpressionState
   }
 
   return { statement };
+}
+
+function magic(ast: ESTree.VariableDeclaration[], constants: string[]) {
+  const constantsToImport = new Set(constants);
+  const matchedConstants = [];
+
+  function* getConstantsAcrossCtxs(parentObj) {
+    const { ctx, parent } = parentObj;
+
+    const matchedConstsInCurrentCtx = [];
+    for (const statement of ctx) {
+      if (statement.type === "VariableDeclaration") {
+        const declaration = statement.declarations[0];
+        if (declaration.type === "VariableDeclarator") {
+          if (constantsToImport.has(declaration.id.name)) {
+            matchedConstsInCurrentCtx.push(statement);
+            constantsToImport.delete(declaration.id.name);
+          }
+        }
+      }
+    }
+
+    matchedConstants.push(...matchedConstsInCurrentCtx.reverse());
+
+    if (parent && constantsToImport.size > 0) {
+      [...getConstantsAcrossCtxs(parent)];
+    }
+  }
+
+  // console.log(constantsToImport);
+  [...getConstantsAcrossCtxs(ast)];
+  // console.log(constantsToImport);
+
+  if (constantsToImport.size > 0) {
+    // throw new Error(`Cannot find constants: ${[...constantsToImport.values()].join(" - ")}`)
+
+    console.log(`Cannot find constants: ${[...constantsToImport.values()].join(" - ")}`);
+  }
+
+  const prog = {
+    type: "Program",
+    sourceType: "module",
+    body: matchedConstants.reverse()
+  };
+
+  return generate(prog);
+}
+
+export function scanMemberExpressionInFunctionAST(statement: ESTree.ExpressionStatement) {  
+  const constants: string[] = [];
+
+  if (statement.type === kVarStatementType) {
+    if (statement.expression.type !== "CallExpression") {
+      return null;
+    }
+
+    const callee = statement.expression.callee;
+
+    if (callee.type === "Identifier") {
+      if (!kForbiddenKeyword.includes(callee.name)) {
+        constants.push(callee.name);
+      }
+
+      constants.push(...checkFnArguments(statement.expression.arguments));
+
+      return constants;
+    }
+
+    if (statement.expression.callee.type === "MemberExpression") {
+      if (!kForbiddenKeyword.includes(statement.expression.callee.object.name)) {
+        constants.push(statement.expression.callee.object.name);
+      }
+
+      constants.push(...checkFnArguments(statement.expression.arguments));
+    
+      return constants;
+    }
+      
+    return null;
+  }
+
+  if (statement.type === "CallExpression") {
+    const s: any = statement;
+    if (s.callee.type === "Identifier") {
+      if (!kForbiddenKeyword.includes(s.callee.name)) {
+        constants.push(s.callee.name);
+      }
+
+      constants.push(...checkFnArguments(s.arguments));
+
+      return constants;
+    }
+
+
+    if (s.callee.type === "MemberExpression") {
+      // console.log(s);
+      if (s.callee.object.type === "MemberExpression") {
+        if (s.callee.object.object.type === "Identifier") {
+          constants.push(s.callee.object.object.name);
+
+          return constants;
+        }
+      }
+    }
+
+    return null;
+  }
+
+
+  return null;
+}
+
+function checkFnArguments(args: ESTree.Expression[]): string[] {
+  const constants = [];
+
+  for (const arg of args) {
+    if (arg.type === "Identifier") {
+      constants.push(arg.name);
+
+      continue;
+    }
+
+    if (arg.type === "MemberExpression") {
+      if (arg.object.type === "Identifier") {
+        constants.push(arg.object.name);
+
+        continue;
+      }
+
+      continue;
+    }
+
+    if (arg.type === "CallExpression") {
+      const result = scanMemberExpressionInFunctionAST(arg as any);
+
+      if (result) {
+        constants.push(...result);
+      }
+    }
+  }
+
+  return constants;
+}
+
+export function scanMemberExpressionInVarDeclarationAST(statement: ESTree.VariableDeclaration){
+  if (statement.type !== kRequireStatementsType) {
+    return null;
+  }
+
+  const declaration = statement.declarations[0];
+
+  if (kRequireDeclarationType !== declaration.type) {
+    return null;
+  }
+
+  const response = (declaration.id as any).name;
+
+  if (declaration.init.type === "CallExpression") {
+    if (declaration.init.callee.type === "MemberExpression") {
+      return [
+        response,
+        [
+          declaration.init.callee.object.name,
+          ...checkFnArguments(declaration.init.arguments)
+        ]
+      ];
+    }
+
+    return [response, null];
+  }
+
+  if (declaration.init.type === "BinaryExpression") {
+    console.log("BinaryExpression not supported yet.");
+
+    return [response, null];
+  }
+  
+  return [response, null];
+}
+
+function getConstantsFromFunction(fn: any, constantsToIgnore: string[]) {
+  const ast = parseScript(fn.toString());
+  const constants = [];
+
+  function* hui(a) {
+    for (const statement of a.body ?? a) {
+      if (statement.type === "FunctionDeclaration") {
+        [...hui(statement.body)];
+
+        continue;
+      }
+
+      if (statement.type === "VariableDeclaration") {
+        const result = scanMemberExpressionInVarDeclarationAST(statement);
+
+        if (result) {
+          const [declared, constantsToImport] = result;
+
+          if (constantsToImport) {
+            constants.push(...constantsToImport);
+          }
+
+          constantsToIgnore.push(declared);
+        }
+
+        continue;
+      }
+
+      const result = scanMemberExpressionInFunctionAST(statement);
+
+      if (!result) {
+        continue;
+      }
+
+      constants.push(...result);
+    }
+  }
+
+  [...hui(ast)];
+
+  return constants;
 }
